@@ -7,6 +7,12 @@
 #include <assert.h>
 #include <chrono>
 
+#using <System.dll>
+
+using namespace System;
+using namespace System::IO;
+using namespace System::Diagnostics;
+
 #define JYMON_READ_BUFFER_SIZE            1024
 #define JYMON_DEFAULT_REQUEST_COUNT       5
 #define JYMON_DEFAULT_THREAD_COUNT        2
@@ -82,50 +88,6 @@ typedef struct _JYMON_REPLY_MESSAGE
 
 } JYMON_REPLY_MESSAGE, *PJYMON_REPLY_MESSAGE;
 
-
-#define STATUS_SUCCESS               ((NTSTATUS)0x00000000L)
-#define STATUS_INFO_LENGTH_MISMATCH  ((NTSTATUS)0xC0000004L)
-
-typedef enum _SYSTEM_INFORMATION_CLASS {
-	SystemProcessInformation = 5
-} SYSTEM_INFORMATION_CLASS;
-
-typedef struct _UNICODE_STRING {
-	USHORT Length;
-	USHORT MaximumLength;
-	PWSTR  Buffer;
-} UNICODE_STRING;
-
-typedef LONG KPRIORITY; // Thread priority
-
-typedef struct _SYSTEM_PROCESS_INFORMATION_DETAILD {
-	ULONG NextEntryOffset;
-	ULONG NumberOfThreads;
-	LARGE_INTEGER SpareLi1;
-	LARGE_INTEGER SpareLi2;
-	LARGE_INTEGER SpareLi3;
-	LARGE_INTEGER CreateTime;
-	LARGE_INTEGER UserTime;
-	LARGE_INTEGER KernelTime;
-	UNICODE_STRING ImageName;
-	KPRIORITY BasePriority;
-	HANDLE UniqueProcessId;
-	ULONG InheritedFromUniqueProcessId;
-	ULONG HandleCount;
-	BYTE Reserved4[4];
-	PVOID Reserved5[11];
-	SIZE_T PeakPagefileUsage;
-	SIZE_T PrivatePageCount;
-	LARGE_INTEGER Reserved6[6];
-} SYSTEM_PROCESS_INFORMATION_DETAILD, *PSYSTEM_PROCESS_INFORMATION_DETAILED;
-
-typedef NTSTATUS(WINAPI *PFN_NT_QUERY_SYSTEM_INFORMATION)(
-	IN       SYSTEM_INFORMATION_CLASS SystemInformationClass,
-	IN OUT   PVOID SystemInformation,
-	IN       ULONG SystemInformationLength,
-	OUT OPTIONAL  PULONG ReturnLength
-	);
-
 typedef class _TIMER
 {
 public:
@@ -175,6 +137,7 @@ JyMonWorker(
 	ULONG_PTR CompletionKey;
 	WCHAR* ImagePath;
 
+
 #pragma warning(push)
 #pragma warning(disable:4127) // conditional expression is constant
 	//
@@ -186,6 +149,7 @@ JyMonWorker(
 	//
 	while (TRUE)
 	{
+		printf("FUCK\n");
 #pragma warning(pop)
 		//
 		// Poll for messages from the filter component to scan.
@@ -196,6 +160,7 @@ JyMonWorker(
 			&Overlapped,
 			INFINITE))
 		{
+			printf("Overlapped\n");
 			if (NULL != Overlapped)
 			{
 				HandleResult = HRESULT_FROM_WIN32(GetLastError());
@@ -207,12 +172,15 @@ JyMonWorker(
 			}
 		}
 
+		//
+		// To look up members in OVERLAPPPED structure, refer to 
+		// https://msdn.microsoft.com/en-us/library/windows/desktop/ms684342(v=vs.85).aspx
+		//
 		Message = CONTAINING_RECORD(Overlapped,
 			JYMON_NOTIFICATION_MESSAGE,
 			Overlapped);
 		Notification = &Message->Notification;
-
-
+		printf("FUCK2\n");
 		printf("Image Path : %ws\nCommand Line : %ws\nOperation : %d\nPath : %ws\nResult : %d\nProcess ID : %d\nThread ID : %d\nSession ID : %d\nParent Process ID : %d\n",
 			Message->Notification.ImagePath,
 			Message->Notification.CommandLine,
@@ -223,9 +191,10 @@ JyMonWorker(
 			Message->Notification.ThreadId,
 			Message->Notification.SessionId,
 			Message->Notification.ParentProcessId);
+
 		printf("___________________________________________\n\n\n");
 
-		
+		printf("FUCK3\n");
 		//
 		// Reserved codes for reply messages to filter.
 		//
@@ -233,27 +202,27 @@ JyMonWorker(
 		ReplyMessage.ReplyHeader.Status = 0;
 		ReplyMessage.ReplyHeader.MessageId = Message->MessageHeader.MessageId;
 		ReplyMessage.Reply.Reserved = 0
-		
+
 		HandleResult = FilterReplyMessage(Context->Port,
-			(PFILTER_REPLY_HEADER)&ReplyMessage,
-			sizeof(ReplyMessage));
+		(PFILTER_REPLY_HEADER)&ReplyMessage,
+		sizeof(ReplyMessage));
 		if (SUCCEEDED(HandleResult))
 		{
-			printf("Replied message\n");
+		printf("Replied message\n");
 		}
 		else
 		{
-			printf("JYMON: Error replying message. Error = 0x%X\n", HandleResult);
-			break;
+		printf("JYMON: Error replying message. Error = 0x%X\n", HandleResult);
+		break;
 		}
 		*/
-		
+
 		RtlZeroMemory(&Message->Overlapped, 0, sizeof(OVERLAPPED));
 		HandleResult = FilterGetMessage(Context->Port,
 			&Message->MessageHeader,
 			FIELD_OFFSET(JYMON_NOTIFICATION_MESSAGE, Overlapped),
 			&Message->Overlapped);
-		if (HRESULT_FROM_WIN32(ERROR_IO_PENDING) != HandleResult) 
+		if (HRESULT_FROM_WIN32(ERROR_IO_PENDING) != HandleResult)
 		{
 			HandleResult = HRESULT_FROM_WIN32(GetLastError());
 			break;
@@ -261,15 +230,15 @@ JyMonWorker(
 	}
 
 	if (!SUCCEEDED(HandleResult))
-	{	
-		if (HandleResult == HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE)) 
+	{
+		if (HandleResult == HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE))
 		{
 			//
 			//  Scanner port disconncted.
 			//
 			printf("Scanner: Port is disconnected, probably due to scanner filter unloading.\n");
 		}
-		else 
+		else
 		{
 			printf("Scanner: Unknown error occured, HRESULT = 0x%X\n", HandleResult);
 		}
@@ -301,7 +270,7 @@ main(_In_ int argc,
 	DWORD ThreadId;
 	HRESULT HandleResult;
 	DWORD i, j;
-	
+
 	if (argc > 1)
 	{
 		RequestCount = atoi(argv[1]);
@@ -366,6 +335,7 @@ main(_In_ int argc,
 	{
 		for (i = 0; i < ThreadCount; i++)
 		{
+			printf("Create Thread..\n");
 			Threads[i] = CreateThread(NULL,
 				0,
 				(LPTHREAD_START_ROUTINE)JyMonWorker,
@@ -383,32 +353,7 @@ main(_In_ int argc,
 				__leave;
 			}
 
-			for (j = 0; j < RequestCount; j++)
-			{
-				//
-				//  Allocate the message.
-				//
-#pragma prefast(suppress:__WARNING_MEMORY_LEAK, "msg will not be leaked because it is freed in JyMonWorker")
-				Message = (PJYMON_NOTIFICATION_MESSAGE)malloc(sizeof(JYMON_NOTIFICATION_MESSAGE));
-				if (NULL == Message)
-				{
-					HandleResult = ERROR_NOT_ENOUGH_MEMORY;
-					__leave;
-				}
-				RtlZeroMemory(&Message->Overlapped, sizeof(OVERLAPPED));
 
-				//
-				//  Request messages from the filter driver.
-				//
-				HandleResult = FilterGetMessage(Port,
-					&Message->MessageHeader,
-					FIELD_OFFSET(JYMON_NOTIFICATION_MESSAGE, Overlapped),
-					&Message->Overlapped);
-				if (HandleResult != HRESULT_FROM_WIN32(ERROR_IO_PENDING))
-				{
-					__leave;
-				}
-			}
 		}
 
 		HandleResult = S_OK;
